@@ -115,30 +115,129 @@ requirements.txt       # Python dependencies
 
 ## API Contracts
 
-### 1. `POST /api/webhooks/tlink`
-- **Purpose:** Receive push payloads documented in `docs/push_data_protocol.md`.
-- **Headers:** Optional `X-TLink-Signature` (HMAC SHA-256 over the raw body) if `PUSH_WEBHOOK_SECRET` is configured.
-- **Body:** Same JSON structure as the vendor PDF (`flag`, `deviceId`, `deviceUserid`, `parentUserId`, `sensorsDates`, `rawData`, etc.).
-- **Response:** `{ "status": "ok", "storedReadings": <count> }`
+**General conventions**
 
-### 2. `GET /api/users/<userId>/devices`
-- **Query parameters:**
-  - `deviceId` (int, optional)
-  - `startTime`, `endTime` (`YYYY-MM-DD HH:MM:SS`, optional)
-  - `page`, `pageSize` (defaults provided by `.env`)
-  - `historyLimit` (max number of readings per sensor, defaults to `DEFAULT_HISTORY_LIMIT`)
-- **Response:** User metadata plus a paginated `devices` array. Each device includes sensor summaries and recent history that mirrors `/api/device/getSensorHistroy` semantics from the official API reference.
+- Every REST path is rooted at `/api`. JSON responses include `error` keys on failures; `GET /api/users/register/test` is the only HTML endpoint.
+- `userId` values are locally generated UUIDs (`users.id`). `deviceId`/`sensorId` remain the TLINK integers (`devices.external_id` and `sensors.external_id`).
+- Timestamp filters accept `YYYY-MM-DD HH:MM:SS` strings and are normalized before querying MySQL/log files.
+- When provided, `X-TLink-Signature` must be `sha256=...` HMAC over the raw request body using `PUSH_WEBHOOK_SECRET`.
 
-### 3. `GET /api/users/<userId>/devices/<deviceId>/latest`
-- **Purpose:** Quick snapshot of the latest stored values for every sensor on a device.
-- **Response:** Device summary plus `sensors` array where each entry contains `latest` reading metadata.
+### Webhook ingestion — `POST /api/webhooks/tlink`
 
-### 4. `GET /api/users/<userId>/devices/<deviceId>/history`
-- **Purpose:** Detailed sensor history for a specific device filtered by optional `startTime`, `endTime`, and `historyLimit` query parameters (defaults mirror the list endpoint).
-- **Response:** User + device metadata plus each sensor's summary and capped history list. Sensor history is parsed directly from the per-device log files (`logs/<deviceId>/device<deviceId>-YYYY-MM-DD.log`), so it reflects exactly what the background sync retrieved without requiring database reads.
+**Purpose:** Entry point for TLINK push notifications documented in `docs/push_data_protocol.md`.
 
-### 5. `GET /api/reference/device-apis`
-- **Purpose:** Thin wrapper over the highlights from `docs/official_api_reference.md`. Returns a JSON list describing the most commonly used TLINK device endpoints so developers can jump between this local store and the live SaaS API.
+**Headers**
+
+| Header | Required | Notes |
+| --- | --- | --- |
+| `Content-Type: application/json` | yes | Body must be JSON.
+| `X-TLink-Signature` | yes when `PUSH_WEBHOOK_SECRET` is set | `sha256=<hex>` HMAC calculated over the raw payload. Requests without or with an invalid signature return `401`.
+
+**Body highlights**
+
+| Field | Description |
+| --- | --- |
+| `deviceId` / `deviceUserid` / `parentUserId` | Used to find the local device and owning user.
+| `flag`, `rawData`, `pushTime` | Persisted onto the device row for debugging.
+| `sensorsDates[]` | Each entry must supply `sensorsId`, `sensorTypeId`, `isLine`, `isAlarm`, `unit`, `recordedAt`, and `value`. They are upserted into `sensors` plus `sensor_readings`.
+
+**Behavior**
+
+- The raw body is validated, signature checked, then passed to `process_push_payload`, which deduplicates sensor readings via `(sensor_id, recorded_at, sensor_timestamp)`.
+- Each sensor update refreshes both the sensor table and its owning device’s last push metadata.
+
+**Responses**
+
+- `200 {"status":"ok","storedReadings":<int>}` on success.
+- `400` for missing/invalid JSON or bad field contents, `401` for signature mismatch.
+
+### Device directory — `GET /api/users/<userId>/devices`
+
+**Purpose:** Paginated inventory of all devices assigned to a specific local user along with recent readings per sensor.
+
+**Query parameters**
+
+| Parameter | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `deviceId` | int | — | Limits the result set to one TLINK device ID.
+| `startTime` / `endTime` | string | none | Bounds applied before querying MySQL history tables.
+| `page` | int | `1` | 1-indexed; clamped to `>=1`.
+| `pageSize` | int | `DEFAULT_PAGE_SIZE` | Capped at `MAX_PAGE_SIZE`.
+| `historyLimit` | int | `HISTORY_LIMIT` | Max readings per sensor (minimum `1`).
+
+**Response shape**
+
+- `user`: normalized user info (`userId`, `username`, `displayName`, etc.).
+- `pagination`: `page`, `pageSize`, `total`, `pages`.
+- `devices[]`: each entry includes `_device_summary` (deviceId, userId, lastFlag/lastPushTime) plus `sensors[]`. Every sensor ships `_sensor_summary` fields and a `history` array of up to `historyLimit` readings.
+
+**Errors:** `404` when the user does not exist; `400` when query parameters fail validation.
+
+### Device snapshot — `GET /api/users/<userId>/devices/<deviceId>/latest`
+
+**Purpose:** Quickly fetches the last known value for every sensor on a single device.
+
+- Returns `{ "device": { ... }, "sensors": [{ ... , "latest": { ... } }] }` where `latest` mirrors `_reading_dict` (`recordedAt`, `sensorTimestamp`, `isAlarm`, `isLine`, `rawValue`, `value`).
+- `404` is returned if the user or device combination does not exist.
+
+### File-backed history — `GET /api/users/<userId>/devices/<deviceId>/history`
+
+**Purpose:** Replay the exact payloads fetched by the sync worker using log files under `logs/<deviceId>/device<deviceId>-YYYY-MM-DD.log`.
+
+| Parameter | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `startTime` / `endTime` | string | none | Filters applied while reading log entries before truncation.
+| `historyLimit` | int | `HISTORY_LIMIT` | Caps the number of log entries returned per sensor.
+
+**Response:**
+
+- `user` + `device` summaries.
+- `sensors[]`: for known database sensors, includes `_sensor_summary` and `history` pulled from the logs. Unknown-but-logged sensor IDs still appear with `sensorTypeId`, `unit`, etc. set to `null` so nothing is silently hidden.
+
+### Sync log browser — `GET /api/users/<userId>/logs/<deviceId>` (optional `/ <sensorId>`)
+
+**Purpose:** Inspect structured sync logs produced by the TLINK polling worker.
+
+**Query parameters**
+
+| Parameter | Type | Notes |
+| --- | --- | --- |
+| `startTime` / `endTime` | string | Restricts log search window.
+| `status` | string | Case-insensitive filter for entries tagged `success`, `error`, etc.
+| `page` / `pageSize` | int | Server-side pagination; size clamped between `1` and `MAX_PAGE_SIZE`.
+
+**Response:**
+
+- `logs[]`: entries with `timestamp`, `status`, `httpStatus`, `message`, and nested `sensors[]` (sensorId, reading, units, isAlarm, isOnline).
+- `pagination`: echoes the paging inputs plus `returned` and `hasMore`.
+- Requires `TLINK_ACCOUNT_NUMBER` to be configured; otherwise the endpoint responds with `500`.
+
+### Manual registration API — `POST /api/users/register`
+
+**Purpose:** Create a local user account and bind one or more unassigned devices in a single transaction. Accepts JSON or `application/x-www-form-urlencoded` bodies.
+
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `username` | string | yes | Must be unique; conflicts raise `409`.
+| `password` | string | yes | Stored as a Werkzeug salted hash.
+| `fullName` | string | yes | Used as a fallback for `displayName`.
+| `displayName` | string | no | Defaults to `fullName` if omitted/blank.
+| `email` | string | yes | Must be unique.
+| `role` | string | no | One of `admin`, `operator`, `viewer` (default `viewer`).
+| `isActive` | bool/string | no | Truthy strings keep the account active (default `true`).
+| `deviceIds` | array or repeated form field | yes | List of TLINK device IDs to assign. Device must exist and not be linked to another user.
+
+**Responses:** `201` with `{ "user": { ... }, "deviceIds": [...] }` on success; `400` for validation errors, `409` for username/email collisions, `500` for unexpected failures (with server logs capturing the trace).
+
+### Manual registration form — `GET /api/users/register/test`
+
+- Returns a lightweight HTML page that posts to `/api/users/register`. The dropdown is populated with `list_unassigned_devices()` (cap controlled by `REGISTER_FORM_DEVICE_LIMIT`).
+- Useful for smoke-testing end-to-end registration without crafting JSON by hand. Customize the `action` attribute through `REGISTER_FORM_POST_URL`.
+
+### Device reference helper — `GET /api/reference/device-apis`
+
+- Surfaces a curated subset of endpoints from `docs/official_api_reference.md`, making it easy for frontend developers to navigate between this emulator and TLINK’s SaaS API.
+- Response payload: `{ "source": <path or fallback>, "count": 4, "reference": [ {"endpoint": ..., "method": ..., "summary": ..., "keyFields": [...]}, ... ] }`.
 
 ## Database Schema Overview
 
