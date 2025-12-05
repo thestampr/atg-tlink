@@ -104,11 +104,11 @@ requirements.txt       # Python dependencies
 
 ## TLINK Cloud Sync
 
-- A background job named `tlink_device_sync` runs every `TLINK_SYNC_INTERVAL_SECONDS` seconds (default `60`) whenever `TLINK_SYNC_ENABLED=true`. Each run iterates over the comma-separated `TLINK_SYNC_USER_IDS`, calls TLINK's `/api/device/getDeviceSensorDatas`, and feeds the response through the same ingestion pipeline as the webhook.
+- A background job named `tlink_device_sync` runs every `TLINK_SYNC_INTERVAL_SECONDS` seconds (default `60`) whenever `TLINK_SYNC_ENABLED=true`. Each run targets the configured `TLINK_ACCOUNT_NUMBER`, calls TLINK's `/api/device/getDeviceSensorDatas`, and feeds the response through the same ingestion pipeline as the webhook.
 - Key environment settings:
-   - Core API routing: `TLINK_BASE_URL`, `TLINK_SENSOR_DATA_PATH`, `TLINK_SENSOR_HTTP_METHOD`, `TLINK_HTTP_TIMEOUT`, `TLINK_APP_ID`.
+   - Core API routing: `TLINK_BASE_URL`, `TLINK_HTTP_TIMEOUT`, `TLINK_APP_ID` (the sensor endpoint and method are fixed to TLINK defaults).
    - OAuth password-grant credentials: `TLINK_OAUTH_TOKEN_URL`, `TLINK_OAUTH_CLIENT_ID`, `TLINK_OAUTH_CLIENT_SECRET`, `TLINK_OAUTH_USERNAME`, `TLINK_OAUTH_PASSWORD`, optional `TLINK_OAUTH_SCOPE`, and `TLINK_OAUTH_REFRESH_BUFFER` (seconds before expiry to refresh).
-   - Scheduler controls: `TLINK_SYNC_ENABLED`, `TLINK_SYNC_INTERVAL_SECONDS`, `TLINK_SYNC_PAGE_SIZE`, and `TLINK_SYNC_USER_IDS` (comma-separated TLINK `userId` values, e.g., `121025,385`).
+   - Scheduler controls: `TLINK_SYNC_ENABLED`, `TLINK_SYNC_INTERVAL_SECONDS`, and `TLINK_SYNC_PAGE_SIZE`.
 - Tokens are cached and refreshed automatically—no need to paste short-lived bearer strings into `.env`.
 - Watch the Flask logs for `TLINK sync completed...` messages to confirm the job is running, or set `TLINK_SYNC_ENABLED=false` to disable the background pull entirely.
 

@@ -26,21 +26,16 @@ class Config:
     LOG_AGE = int(os.getenv("LOG_AGE", "90"))
     SYNC_LOG_DIR = os.getenv("SYNC_LOG_DIR", str(BASE_DIR / "logs"))
     REGISTER_FORM_POST_URL = os.getenv("REGISTER_FORM_POST_URL", "/api/users/register")
-    REGISTER_FORM_USER_LIMIT = int(os.getenv("REGISTER_FORM_USER_LIMIT", "25"))
     REGISTER_FORM_DEVICE_LIMIT = int(os.getenv("REGISTER_FORM_DEVICE_LIMIT", "50"))
 
     _cors = os.getenv("CORS_ALLOWED_ORIGINS", "*")
     CORS_ALLOWED_ORIGINS: List[str] = [o.strip() for o in _cors.split(",") if o.strip()]
 
-    API_DOC_SOURCE = os.getenv(
-        "DEVICE_API_DOC_SOURCE", "docs/official_api_reference.md"
-    )
+    API_DOC_SOURCE = str(BASE_DIR / "docs" / "official_api_reference.md")
 
     TLINK_BASE_URL = os.getenv("TLINK_BASE_URL", "https://app.dtuip.com").rstrip("/")
-    TLINK_SENSOR_DATA_PATH = os.getenv(
-        "TLINK_SENSOR_DATA_PATH", "/api/device/getDeviceSensorDatas"
-    )
-    TLINK_SENSOR_HTTP_METHOD = os.getenv("TLINK_SENSOR_HTTP_METHOD", "GET").upper()
+    TLINK_SENSOR_DATA_PATH = "/api/device/getDeviceSensorDatas"
+    TLINK_SENSOR_HTTP_METHOD = "GET"
     TLINK_ACCOUNT_NUMBER = int(os.getenv("TLINK_ACCOUNT_NUMBER", "0"))
     TLINK_APP_ID = os.getenv("TLINK_APP_ID", "")
     TLINK_HTTP_TIMEOUT = int(os.getenv("TLINK_HTTP_TIMEOUT", "30"))
@@ -54,24 +49,3 @@ class Config:
     TLINK_SYNC_ENABLED = os.getenv("TLINK_SYNC_ENABLED", "true").lower() in {"1", "true", "yes"}
     TLINK_SYNC_INTERVAL_SECONDS = int(os.getenv("TLINK_SYNC_INTERVAL_SECONDS", "60"))
     TLINK_SYNC_PAGE_SIZE = int(os.getenv("TLINK_SYNC_PAGE_SIZE", "10"))
-    _sync_user_ids = os.getenv("TLINK_SYNC_USER_IDS", "")
-    TLINK_SYNC_USER_IDS = []
-    for part in _sync_user_ids.split(","):
-        token = part.strip()
-        if not token:
-            continue
-        try:
-            TLINK_SYNC_USER_IDS.append(int(token))
-        except ValueError:
-            continue
-
-    SYNC_PLACEHOLDER_EMAIL_DOMAIN = os.getenv("SYNC_PLACEHOLDER_EMAIL_DOMAIN", "sync.local")
-    SYNC_DEFAULT_PASSWORD = os.getenv("SYNC_DEFAULT_PASSWORD", "sync-placeholder")
-    SYNC_DEFAULT_PASSWORD_HASH = os.getenv("SYNC_DEFAULT_PASSWORD_HASH", "")
-    SYNC_DEFAULT_ROLE = os.getenv("SYNC_DEFAULT_ROLE", "viewer")
-    SYNC_DEFAULT_DISPLAY_NAME_TEMPLATE = os.getenv(
-        "SYNC_DEFAULT_DISPLAY_NAME_TEMPLATE", "TLINK Sync {external_id}"
-    )
-
-    TLINK_USER_INFO_PATH = os.getenv("TLINK_USER_INFO_PATH", "/api/user/getUserInfo")
-    TLINK_USER_INFO_HTTP_METHOD = os.getenv("TLINK_USER_INFO_HTTP_METHOD", "GET").upper()
