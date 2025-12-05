@@ -1,0 +1,19 @@
+{
+  "flag": "00",
+  "deviceUserid": 385,
+  "parentUserId": "217",
+  "sensorsDates": [
+    {
+      "times": "14:16:21",
+      "sensorsId": 11922,
+      "isAlarm": "0",
+      "sensorsTypeId": 1,
+      "isLine": 1,
+      "reVal": "5.0000",
+      "value": "5.0"
+    }
+  ],
+  "time": "2019-05-10 14:16:21",
+  "rawData": "235254552C352E303030302C322E373433342C302E303037370D0A",
+  "deviceId": 2864
+}

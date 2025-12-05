@@ -1,0 +1,54 @@
+services:
+  db:
+    image: mysql:8.4
+    container_name: atg-tlink-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpass}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-tlink}
+      MYSQL_USER: ${MYSQL_USER:-tlink}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-tlinkpass}
+      TZ: Asia/Bangkok
+    ports:
+      - "${MYSQL_HOST_PORT:-3307}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./sql/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -uroot -p${MYSQL_ROOT_PASSWORD:-rootpass}"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin:5.2
+    container_name: atg-tlink-phpmyadmin
+    restart: unless-stopped
+    environment:
+      PMA_HOST: db
+      PMA_USER: ${MYSQL_USER:-tlink}
+      PMA_PASSWORD: ${MYSQL_PASSWORD:-tlinkpass}
+      UPLOAD_LIMIT: 64M
+      TZ: Asia/Bangkok
+    ports:
+      - "8080:80"
+    depends_on:
+      - db
+
+  api:
+    build: .
+    container_name: atg-tlink-api
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: mysql://${MYSQL_USER:-tlink}:${MYSQL_PASSWORD:-tlinkpass}@db:3306/${MYSQL_DATABASE:-tlink}
+      TZ: Asia/Bangkok
+    ports:
+      - "5000:5000"
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  mysql_data:

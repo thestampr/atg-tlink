@@ -1,0 +1,36 @@
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Packages and environments
+.venv/
+venv/
+ENV/
+env/
+
+# Testing & coverage
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# IDE/editor clutter
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs & runtime data
+logs/
+instance/
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+
+# OS noise
+.DS_Store
+Thumbs.db
