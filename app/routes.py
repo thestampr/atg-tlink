@@ -12,6 +12,7 @@ from markupsafe import escape
 from .db import (
     count_devices,
     fetch_devices,
+    fetch_device_by_external_id,
     fetch_latest_sensor_reading,
     fetch_sensors,
     fetch_sensor_history,
@@ -54,12 +55,15 @@ def ingest_push() -> Response:
     return jsonify({"status": "ok", "storedReadings": stored})
 
 
-@api_bp.route("/users/<string:user_id>/devices", methods=["GET"])
-def get_user_devices(user_id: str) -> Response:
+@api_bp.route("/devices", methods=["GET"])
+def list_devices() -> Response:
     conn = get_connection()
-    user = fetch_user_by_id(conn, user_id)
-    if not user:
-        return jsonify({"error": "User not found"}), 404
+    owner_id = request.args.get("ownerId")
+    owner = None
+    if owner_id:
+        owner = fetch_user_by_id(conn, owner_id)
+        if not owner:
+            return jsonify({"error": "User not found"}), 404
 
     device_filter = request.args.get("deviceId", type=int)
     start_time = coerce_datetime(request.args.get("startTime"))
@@ -74,9 +78,9 @@ def get_user_devices(user_id: str) -> Response:
     )
     history_limit = max(1, history_limit)
 
-    total_devices = count_devices(conn, user["id"], device_filter)
+    total_devices = count_devices(conn, owner_id, device_filter)
     offset = (page - 1) * page_size
-    device_rows = fetch_devices(conn, user["id"], device_filter, page_size, offset)
+    device_rows = fetch_devices(conn, owner_id, device_filter, page_size, offset)
 
     device_payload = []
     start_bound = to_storage_timestamp(start_time)
@@ -109,34 +113,36 @@ def get_user_devices(user_id: str) -> Response:
 
     total_pages = (total_devices + page_size - 1) // page_size if page_size else 0
 
-    return jsonify(
-        {
-            "user": _user_dict(user),
-            "pagination": {
-                "page": page,
-                "pageSize": page_size,
-                "total": total_devices,
-                "pages": total_pages,
-            },
-            "devices": device_payload,
-        }
-    )
+    response_payload = {
+        "pagination": {
+            "page": page,
+            "pageSize": page_size,
+            "total": total_devices,
+            "pages": total_pages,
+        },
+        "devices": device_payload,
+    }
+    if owner:
+        response_payload["user"] = _user_dict(owner)
+
+    return jsonify(response_payload)
 
 
-@api_bp.route(
-    "/users/<string:user_id>/devices/<int:device_id>/latest", methods=["GET"]
-)
-def get_device_latest(user_id: str, device_id: int) -> Response:
+@api_bp.route("/devices/<int:device_id>/latest", methods=["GET"])
+def get_device_latest(device_id: int) -> Response:
     conn = get_connection()
-    user = fetch_user_by_id(conn, user_id)
-    if not user:
-        return jsonify({"error": "User not found"}), 404
+    owner_id = request.args.get("ownerId")
+    owner = None
+    if owner_id:
+        owner = fetch_user_by_id(conn, owner_id)
+        if not owner:
+            return jsonify({"error": "User not found"}), 404
 
-    device_rows = fetch_devices(conn, user["id"], device_id, 1, 0)
-    if not device_rows:
-        return jsonify({"error": "Device not found for user"}), 404
+    device = _find_device(conn, device_id, owner_id)
+    if not device:
+        message = "Device not found for user" if owner else "Device not found"
+        return jsonify({"error": message}), 404
 
-    device = device_rows[0]
     sensors = []
     for sensor in fetch_sensors(conn, device["id"]):
         latest_reading = fetch_latest_sensor_reading(conn, sensor["id"])
@@ -147,24 +153,27 @@ def get_device_latest(user_id: str, device_id: int) -> Response:
             }
         )
 
-    return jsonify({"device": _device_summary(device), "sensors": sensors})
+    response = {"device": _device_summary(device), "sensors": sensors}
+    if owner:
+        response["user"] = _user_dict(owner)
+    return jsonify(response)
 
 
-@api_bp.route(
-    "/users/<string:user_id>/devices/<int:device_id>/history",
-    methods=["GET"],
-)
-def get_device_history(user_id: str, device_id: int) -> Response:
+@api_bp.route("/devices/<int:device_id>/history", methods=["GET"])
+def get_device_history(device_id: int) -> Response:
     conn = get_connection()
-    user = fetch_user_by_id(conn, user_id)
-    if not user:
-        return jsonify({"error": "User not found"}), 404
+    owner_id = request.args.get("ownerId")
+    owner = None
+    if owner_id:
+        owner = fetch_user_by_id(conn, owner_id)
+        if not owner:
+            return jsonify({"error": "User not found"}), 404
 
-    device_rows = fetch_devices(conn, user["id"], device_id, 1, 0)
-    if not device_rows:
-        return jsonify({"error": "Device not found for user"}), 404
+    device = _find_device(conn, device_id, owner_id)
+    if not device:
+        message = "Device not found for user" if owner else "Device not found"
+        return jsonify({"error": message}), 404
 
-    device = device_rows[0]
     start_time = coerce_datetime(request.args.get("startTime"))
     end_time = coerce_datetime(request.args.get("endTime"))
     history_limit = request.args.get(
@@ -204,34 +213,31 @@ def get_device_history(user_id: str, device_id: int) -> Response:
             }
         )
 
-    return jsonify(
-        {
-            "user": _user_dict(user),
-            "device": _device_summary(device),
-            "sensors": sensors_payload,
-        }
-    )
+    response = {
+        "device": _device_summary(device),
+        "sensors": sensors_payload,
+    }
+    if owner:
+        response["user"] = _user_dict(owner)
+    return jsonify(response)
 
 
-@api_bp.route(
-    "/users/<string:user_id>/logs/<int:device_id>",
-    methods=["GET"],
-)
-@api_bp.route(
-    "/users/<string:user_id>/logs/<int:device_id>/<int:sensor_id>",
-    methods=["GET"],
-)
-def get_device_logs(user_id: str, device_id: int, sensor_id: Optional[int] = None) -> Response:
+@api_bp.route("/logs/<int:device_id>", methods=["GET"])
+@api_bp.route("/logs/<int:device_id>/<int:sensor_id>", methods=["GET"])
+def get_device_logs(device_id: int, sensor_id: Optional[int] = None) -> Response:
     conn = get_connection()
-    user = fetch_user_by_id(conn, user_id)
-    if not user:
-        return jsonify({"error": "User not found"}), 404
+    owner_id = request.args.get("ownerId")
+    owner = None
+    if owner_id:
+        owner = fetch_user_by_id(conn, owner_id)
+        if not owner:
+            return jsonify({"error": "User not found"}), 404
 
-    device_rows = fetch_devices(conn, user["id"], device_id, 1, 0)
-    if not device_rows:
-        return jsonify({"error": "Device not found for user"}), 404
+    device = _find_device(conn, device_id, owner_id)
+    if not device:
+        message = "Device not found for user" if owner else "Device not found"
+        return jsonify({"error": message}), 404
 
-    device = device_rows[0]
     start_time = coerce_datetime(request.args.get("startTime"))
     end_time = coerce_datetime(request.args.get("endTime"))
     status_filter = request.args.get("status")
@@ -266,19 +272,19 @@ def get_device_logs(user_id: str, device_id: int, sensor_id: Optional[int] = Non
 
     logs_payload = [_log_entry_payload(entry) for entry in entries]
 
-    return jsonify(
-        {
-            "user": _user_dict(user),
-            "device": _device_summary(device),
-            "logs": logs_payload,
-            "pagination": {
-                "page": page,
-                "pageSize": page_size,
-                "returned": len(logs_payload),
-                "hasMore": has_more,
-            },
-        }
-    )
+    response = {
+        "device": _device_summary(device),
+        "logs": logs_payload,
+        "pagination": {
+            "page": page,
+            "pageSize": page_size,
+            "returned": len(logs_payload),
+            "hasMore": has_more,
+        },
+    }
+    if owner:
+        response["user"] = _user_dict(owner)
+    return jsonify(response)
 
 
 @api_bp.route("/users/register", methods=["POST"])
@@ -478,6 +484,15 @@ def list_device_reference() -> Response:
             "reference": reference,
         }
     )
+
+
+def _find_device(conn, device_external_id: int, owner_id: Optional[str]) -> Optional[dict]:
+    if owner_id:
+        rows = fetch_devices(conn, owner_id, device_external_id, 1, 0)
+        if rows:
+            return rows[0]
+        return None
+    return fetch_device_by_external_id(conn, device_external_id)
 
 
 def _user_dict(row: dict) -> dict:

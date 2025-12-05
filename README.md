@@ -5,8 +5,8 @@ A Flask-based reference implementation that ingests TLINK push payloads, stores 
 ## Features
 
 - **Webhook ingestion** (`POST /api/webhooks/tlink`): stores every `sensorsDates` entry, maintains user → device bindings, and keeps the latest values per sensor.
-- **Device history service** (`GET /api/users/<userId>/devices`): paginated device list for a TLINK user with filters for `deviceId`, `startTime`, `endTime`, and `historyLimit` per sensor.
-- **Latest snapshot API** (`GET /api/users/<userId>/devices/<deviceId>/latest`): mirrors the "single device" view from the official API reference using your locally persisted data.
+- **Device history service** (`GET /api/devices`): paginated device list with optional `ownerId` filtering plus per-sensor history windows (`deviceId`, `startTime`, `endTime`, `historyLimit`).
+- **Latest snapshot API** (`GET /api/devices/<deviceId>/latest`): mirrors the "single device" view from the official API reference using your locally persisted data.
 - **Device reference helper** (`GET /api/reference/device-apis`): quick reminders for the most common device APIs described in `docs/official_api_reference.md` so frontend teams know how this local service relates to the vendor endpoints.
 - **Remote sync background task**: polls TLINK's `/api/device/getDeviceSensorDatas` on a 60-second cadence (configurable), using the OAuth client to stay authenticated and writing the response through the same ingestion pipeline as the webhook.
 - **Per-device sync logs + retention**: every device sync produces a structured log line (one file per device per day) that lists all sensors captured, and a 12-hour maintenance task prunes log files older than `LOG_AGE` days (default 90).
@@ -118,7 +118,7 @@ requirements.txt       # Python dependencies
 **General conventions**
 
 - Every REST path is rooted at `/api`. JSON responses include `error` keys on failures; `GET /api/users/register/test` is the only HTML endpoint.
-- `userId` values are locally generated UUIDs (`users.id`). `deviceId`/`sensorId` remain the TLINK integers (`devices.external_id` and `sensors.external_id`).
+- `ownerId` query parameters refer to the local UUID stored in `users.id`; skip them to operate on the full device inventory. `deviceId`/`sensorId` remain the TLINK integers (`devices.external_id` and `sensors.external_id`).
 - Timestamp filters accept `YYYY-MM-DD HH:MM:SS` strings and are normalized before querying MySQL/log files.
 - When provided, `X-TLink-Signature` must be `sha256=...` HMAC over the raw request body using `PUSH_WEBHOOK_SECRET`.
 
@@ -151,14 +151,15 @@ requirements.txt       # Python dependencies
 - `200 {"status":"ok","storedReadings":<int>}` on success.
 - `400` for missing/invalid JSON or bad field contents, `401` for signature mismatch.
 
-### Device directory — `GET /api/users/<userId>/devices`
+### Device directory — `GET /api/devices`
 
-**Purpose:** Paginated inventory of all devices assigned to a specific local user along with recent readings per sensor.
+**Purpose:** Paginated inventory of all known devices along with recent readings per sensor. Use the optional `ownerId` to scope the response to a single local user.
 
 **Query parameters**
 
 | Parameter | Type | Default | Notes |
 | --- | --- | --- | --- |
+| `ownerId` | string (UUID) | none | Filters devices to those assigned to the specified local user. When present, the response includes a `user` block; otherwise it returns the global inventory.
 | `deviceId` | int | — | Limits the result set to one TLINK device ID.
 | `startTime` / `endTime` | string | none | Bounds applied before querying MySQL history tables.
 | `page` | int | `1` | 1-indexed; clamped to `>=1`.
@@ -167,22 +168,23 @@ requirements.txt       # Python dependencies
 
 **Response shape**
 
-- `user`: normalized user info (`userId`, `username`, `displayName`, etc.).
+- `user`: present only when `ownerId` is supplied; contains normalized user info (`userId`, `username`, `displayName`, etc.).
 - `pagination`: `page`, `pageSize`, `total`, `pages`.
 - `devices[]`: each entry includes `_device_summary` (deviceId, userId, lastFlag/lastPushTime) plus `sensors[]`. Every sensor ships `_sensor_summary` fields and a `history` array of up to `historyLimit` readings.
 
-**Errors:** `404` when the user does not exist; `400` when query parameters fail validation.
+**Errors:** `404` when `ownerId` is provided but the user does not exist; `400` when query parameters fail validation.
 
-### Device snapshot — `GET /api/users/<userId>/devices/<deviceId>/latest`
+### Device snapshot — `GET /api/devices/<deviceId>/latest`
 
 **Purpose:** Quickly fetches the last known value for every sensor on a single device.
 
+- Optional `ownerId` query parameter enforces that the device belongs to a specific local user before returning data.
 - Returns `{ "device": { ... }, "sensors": [{ ... , "latest": { ... } }] }` where `latest` mirrors `_reading_dict` (`recordedAt`, `sensorTimestamp`, `isAlarm`, `isLine`, `rawValue`, `value`).
-- `404` is returned if the user or device combination does not exist.
+- `404` is returned if the device (or the owner/device combination) does not exist.
 
-### File-backed history — `GET /api/users/<userId>/devices/<deviceId>/history`
+### File-backed history — `GET /api/devices/<deviceId>/history`
 
-**Purpose:** Replay the exact payloads fetched by the sync worker using log files under `logs/<deviceId>/device<deviceId>-YYYY-MM-DD.log`.
+**Purpose:** Replay the exact payloads fetched by the sync worker using log files under `logs/<deviceId>/device<deviceId>-YYYY-MM-DD.log`. Accepts the same optional `ownerId` filter as the other device endpoints.
 
 | Parameter | Type | Default | Notes |
 | --- | --- | --- | --- |
@@ -191,17 +193,18 @@ requirements.txt       # Python dependencies
 
 **Response:**
 
-- `user` + `device` summaries.
+- `device`: `_device_summary` payload; `user` is included when `ownerId` is supplied.
 - `sensors[]`: for known database sensors, includes `_sensor_summary` and `history` pulled from the logs. Unknown-but-logged sensor IDs still appear with `sensorTypeId`, `unit`, etc. set to `null` so nothing is silently hidden.
 
-### Sync log browser — `GET /api/users/<userId>/logs/<deviceId>` (optional `/ <sensorId>`)
+### Sync log browser — `GET /api/logs/<deviceId>` (optional `/ <sensorId>`)
 
-**Purpose:** Inspect structured sync logs produced by the TLINK polling worker.
+**Purpose:** Inspect structured sync logs produced by the TLINK polling worker, optionally enforcing device ownership via `ownerId`.
 
 **Query parameters**
 
 | Parameter | Type | Notes |
 | --- | --- | --- |
+| `ownerId` | string (UUID) | When provided, the API verifies the device belongs to the supplied user before returning logs.
 | `startTime` / `endTime` | string | Restricts log search window.
 | `status` | string | Case-insensitive filter for entries tagged `success`, `error`, etc.
 | `page` / `pageSize` | int | Server-side pagination; size clamped between `1` and `MAX_PAGE_SIZE`.

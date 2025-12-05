@@ -348,46 +348,50 @@ def insert_reading(
         cursor.close()
 
 
-def count_devices(conn: Connection, user_id: str, device_filter: int | None) -> int:
+def count_devices(conn: Connection, user_id: Optional[str], device_filter: int | None) -> int:
+    clauses = []
+    params: List[Any] = []
+    if user_id:
+        clauses.append("user_id = %s")
+        params.append(user_id)
     if device_filter is not None:
-        row = _fetchone(
-            conn,
-            "SELECT COUNT(*) AS c FROM devices WHERE user_id = %s AND external_id = %s",
-            (user_id, device_filter),
-        )
-    else:
-        row = _fetchone(
-            conn,
-            "SELECT COUNT(*) AS c FROM devices WHERE user_id = %s",
-            (user_id,),
-        )
+        clauses.append("external_id = %s")
+        params.append(device_filter)
+
+    where_sql = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+    row = _fetchone(
+        conn,
+        f"SELECT COUNT(*) AS c FROM devices{where_sql}",
+        tuple(params),
+    )
     return int(row["c"]) if row else 0
 
 
 def fetch_devices(
     conn: Connection,
-    user_id: str,
+    user_id: Optional[str],
     device_filter: int | None,
     limit: int,
     offset: int,
 ) -> List[Dict[str, Any]]:
+    clauses = []
+    params: List[Any] = []
+    if user_id:
+        clauses.append("user_id = %s")
+        params.append(user_id)
     if device_filter is not None:
-        query = """
-            SELECT * FROM devices
-            WHERE user_id = %s AND external_id = %s
-            ORDER BY external_id ASC
-            LIMIT %s OFFSET %s
-        """
-        params: Sequence[Any] = (user_id, device_filter, limit, offset)
-    else:
-        query = """
-            SELECT * FROM devices
-            WHERE user_id = %s
-            ORDER BY external_id ASC
-            LIMIT %s OFFSET %s
-        """
-        params = (user_id, limit, offset)
-    return _fetchall(conn, query, params)
+        clauses.append("external_id = %s")
+        params.append(device_filter)
+
+    where_sql = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+    query = f"""
+        SELECT * FROM devices
+        {where_sql}
+        ORDER BY external_id ASC
+        LIMIT %s OFFSET %s
+    """
+    params.extend([limit, offset])
+    return _fetchall(conn, query, tuple(params))
 
 
 def fetch_sensors(conn: Connection, device_id: int) -> List[Dict[str, Any]]:
