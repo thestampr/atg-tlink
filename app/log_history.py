@@ -1,11 +1,8 @@
 from __future__ import annotations
 
-import json
-import os
-from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional
+from typing import List, Optional
 
 from flask import current_app
 
@@ -46,4 +43,3 @@ def _parse_line(line: str) -> Optional[LogEntry]:
         prefix, sensors_json_part, message_part = line.split("| sensors_json=", 1)[0], None, None
     except ValueError:
         return None
-*** End Patch
