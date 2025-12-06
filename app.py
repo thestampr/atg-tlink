@@ -41,7 +41,7 @@ def _resolve_ssl_context() -> Optional[Tuple[str, str]]:
 
 
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", "5000"))
+    port = int(os.getenv("PORT", "3000"))
     use_https = _env_true("USE_HTTPS", "true")
     ssl_context = _resolve_ssl_context() if use_https else None
 

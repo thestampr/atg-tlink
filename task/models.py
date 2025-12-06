@@ -32,6 +32,8 @@ class TaskFunction(Callable):
     is_working : bool
         A boolean indicating whether the task is currently enabled and working. If `True`, the task is enabled and
         will execute according to its schedule(s). If `False`, the task is disabled and will not execute until enabled.
+    first_run : bool
+        A boolean indicating whether the task should run immediately upon being scheduled for the first time.
 
     Methods
     -------
@@ -54,6 +56,7 @@ class TaskFunction(Callable):
 
     is_running: bool
     is_enable: bool
+    first_run: bool
 
     def disable(self) -> None:
         """

@@ -17,6 +17,7 @@ def task(
         schedule: Union[Job, list[Job]], 
         *, 
         name: str = "", 
+        first_run: Optional[bool] = False,
         on_success: Optional[function] = None, 
         on_failed: Optional[function] = None,
         on_complete: Optional[function] = None, 
@@ -34,6 +35,8 @@ def task(
     name : str, optional
         The name of the task, which can be used for identification or logging purposes. If not provided, it defaults
         to the name of the decorated function.
+    first_run : bool, optional
+        If set to True, the task will run immediately upon being scheduled for the first time.
     on_success : function, optional
         A function to be called when the decorated task function succeeds (no exceptions raised).
     on_failed : function, optional
@@ -107,6 +110,7 @@ def task(
         func.name = name or func.__name__
         func.is_enable = not disabled
         func.is_running = False
+        func.first_run = first_run
 
         @wraps(func)
         def wrapper(*args, **kwargs_func):

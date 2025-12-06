@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS sensors (
     external_id BIGINT NOT NULL,
     device_id BIGINT UNSIGNED NOT NULL,
     sensor_type_id INT,
+    sensor_name VARCHAR(191),
     is_line TINYINT(1),
     unit VARCHAR(64),
     latest_value VARCHAR(255),

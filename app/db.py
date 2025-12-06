@@ -270,6 +270,7 @@ def upsert_sensor(
     device_id: int,
     external_id: int,
     sensor_type_id: int | None,
+    sensor_name: str | None,
     is_line: bool | None,
     is_alarm: bool | None,
     unit: str | None,
@@ -281,11 +282,12 @@ def upsert_sensor(
         cursor.execute(
             """
             INSERT INTO sensors (
-                external_id, device_id, sensor_type_id, is_line, is_alarm,
-                unit, latest_value, latest_recorded_at
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                external_id, device_id, sensor_type_id, sensor_name,
+                is_line, is_alarm, unit, latest_value, latest_recorded_at
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON DUPLICATE KEY UPDATE
                 sensor_type_id = COALESCE(VALUES(sensor_type_id), sensor_type_id),
+                sensor_name = COALESCE(VALUES(sensor_name), sensor_name),
                 is_line = COALESCE(VALUES(is_line), is_line),
                 is_alarm = COALESCE(VALUES(is_alarm), is_alarm),
                 unit = COALESCE(VALUES(unit), unit),
@@ -297,6 +299,7 @@ def upsert_sensor(
                 external_id,
                 device_id,
                 sensor_type_id,
+                sensor_name,
                 _to_bit(is_line),
                 _to_bit(is_alarm),
                 unit,

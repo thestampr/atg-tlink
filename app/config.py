@@ -1,6 +1,43 @@
 import os
 from pathlib import Path
-from typing import List
+from typing import Dict, List
+
+
+def _csv_to_ints(value: str) -> List[int]:
+    result: List[int] = []
+    for token in (value or "").split(","):
+        token = token.strip()
+        if not token:
+            continue
+        try:
+            result.append(int(token))
+        except ValueError:
+            continue
+    return result
+
+
+def _csv_to_str_map(value: str) -> Dict[str, str]:
+    mapping: Dict[str, str] = {}
+    for token in (value or "").split(","):
+        token = token.strip()
+        if not token or ":" not in token:
+            continue
+        key, _, val = token.partition(":")
+        key = key.strip()
+        if not key:
+            continue
+        mapping[key] = val.strip()
+    return mapping
+
+
+def _csv_to_float_map(value: str) -> Dict[str, float]:
+    mapping: Dict[str, float] = {}
+    for key, val in _csv_to_str_map(value).items():
+        try:
+            mapping[key.lower()] = float(val)
+        except ValueError:
+            continue
+    return mapping
 
 
 class Config:
@@ -49,3 +86,28 @@ class Config:
     TLINK_SYNC_ENABLED = os.getenv("TLINK_SYNC_ENABLED", "true").lower() in {"1", "true", "yes"}
     TLINK_SYNC_INTERVAL_SECONDS = int(os.getenv("TLINK_SYNC_INTERVAL_SECONDS", "60"))
     TLINK_SYNC_PAGE_SIZE = int(os.getenv("TLINK_SYNC_PAGE_SIZE", "10"))
+
+    ATG_EXPORT_ENABLED = os.getenv("ATG_EXPORT_ENABLED", "true").lower() in {"1", "true", "yes"}
+    ATG_EXPORT_ENDPOINT = os.getenv(
+        "ATG_EXPORT_ENDPOINT", "https://supsopha.com/api/upload_atg_record.php"
+    )
+    ATG_EXPORT_TIMEOUT = int(os.getenv("ATG_EXPORT_TIMEOUT", "10"))
+    ATG_EXPORT_SENSOR_IDS = _csv_to_ints(os.getenv("ATG_EXPORT_SENSOR_IDS", ""))
+    ATG_EXPORT_WIDTH_CM = float(os.getenv("ATG_EXPORT_WIDTH_CM", "155"))
+    ATG_EXPORT_HEIGHT_CM = float(os.getenv("ATG_EXPORT_HEIGHT_CM", "155"))
+    ATG_EXPORT_SHORT_LENGTH_CM = float(os.getenv("ATG_EXPORT_SHORT_LENGTH_CM", "246"))
+    ATG_EXPORT_LONG_LENGTH_CM = float(os.getenv("ATG_EXPORT_LONG_LENGTH_CM", "492"))
+    ATG_EXPORT_LONG_SENSOR_IDS = set(
+        _csv_to_ints(os.getenv("ATG_EXPORT_LONG_SENSOR_IDS", "6026176"))
+    )
+    ATG_EXPORT_WALL_THICKNESS_CM = float(os.getenv("ATG_EXPORT_WALL_THICKNESS_CM", "0.6"))
+    ATG_EXPORT_DEFAULT_OIL_TYPE = os.getenv("ATG_EXPORT_DEFAULT_OIL_TYPE", "Gasoline")
+    ATG_EXPORT_SENSOR_OIL_TYPES = _csv_to_str_map(
+        os.getenv("ATG_EXPORT_SENSOR_OIL_TYPES", "6026176:Diesel")
+    )
+    ATG_EXPORT_DEFAULT_DENSITY = float(os.getenv("ATG_EXPORT_DEFAULT_DENSITY", "0.75"))
+    ATG_EXPORT_OIL_DENSITIES = _csv_to_float_map(
+        os.getenv("ATG_EXPORT_OIL_DENSITIES", "diesel:0.84,gasoline:0.75")
+    )
+    ATG_EXPORT_CONNECT_TTL_SECONDS = int(os.getenv("ATG_EXPORT_CONNECT_TTL_SECONDS", "900"))
+    ATG_EXPORT_DEFAULT_TEMPERATURE = float(os.getenv("ATG_EXPORT_DEFAULT_TEMPERATURE", "30"))

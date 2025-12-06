@@ -521,6 +521,7 @@ def _sensor_summary(row: dict, device_external_id: int) -> dict:
     return {
         "sensorId": row["external_id"],
         "deviceId": device_external_id,
+        "sensorName": row.get("sensor_name"),
         "sensorTypeId": row["sensor_type_id"],
         "isAlarm": _row_bool(row["is_alarm"]),
         "isLine": _row_bool(row["is_line"]),

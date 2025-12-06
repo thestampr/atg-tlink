@@ -1,7 +1,7 @@
 import hashlib
 import hmac
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Union
 
 
 def verify_signature(secret: str, payload: bytes, incoming_signature: str | None) -> bool:
@@ -19,9 +19,14 @@ def verify_signature(secret: str, payload: bytes, incoming_signature: str | None
     return hmac.compare_digest(expected, provided)
 
 
-def coerce_datetime(value: Optional[str]) -> Optional[datetime]:
-    if not value:
+DatetimeInput = Union[str, datetime, None]
+
+
+def coerce_datetime(value: DatetimeInput) -> Optional[datetime]:
+    if value is None:
         return None
+    if isinstance(value, datetime):
+        return value
     for fmt in ("%Y-%m-%d %H:%M:%S", "%Y/%m/%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"):
         try:
             return datetime.strptime(value, fmt)

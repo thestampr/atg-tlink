@@ -6,6 +6,7 @@ from typing import Any, Dict, Optional, Tuple
 import requests
 from flask import current_app
 
+from .atg_export import export_atg_snapshot
 from .db import (
     get_connection,
     insert_reading,
@@ -62,6 +63,7 @@ def process_push_payload(payload: Payload) -> int:
                 device_row["id"],
                 sensor_external_id,
                 entry.get("sensorsTypeId"),
+                entry.get("sensorName") or entry.get("sensor_name"),
                 _interpret_bool(entry.get("isLine")),
                 _interpret_bool(entry.get("isAlarm")),
                 entry.get("unit"),
@@ -221,6 +223,7 @@ def sync_configured_users() -> Dict[str, int]:
             devices,
             readings,
         )
+        export_atg_snapshot()
     except Exception as exc:  # pragma: no cover - logged for observability
         current_app.logger.exception("TLINK sync failed for user %s: %s", user_id, exc)
 
@@ -317,6 +320,7 @@ def _sensor_entry_from_remote(sensor: Dict[str, Any]) -> Optional[Dict[str, Any]
         "times": timestamp,
         "sensorsId": sensor_id,
         "sensorsTypeId": sensor.get("sensorTypeId"),
+        "sensorName": sensor.get("sensorName") or sensor.get("sensor_name"),
         "isLine": sensor.get("isLine"),
         "isAlarm": sensor.get("isAlarms"),
         "reVal": sensor.get("send_value") or sensor.get("value"),

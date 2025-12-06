@@ -37,6 +37,12 @@ def run_all_tasks(__o: object = __main__) -> None:
     _task_list: list[TaskFunction] = getattr(__o, _L, [])
 
     def __run() -> None:
+        for task in _task_list:
+            if task.first_run and task.is_enable:
+                try:
+                    task()
+                except Exception as e:
+                    print(f"Error during first run of task {task.name}: {str(e)}")
         while getattr(__o, _R, True):
             try:
                 run_pending()

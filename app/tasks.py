@@ -26,7 +26,7 @@ def init_task_scheduler(app: "Flask") -> None:
     log_age = max(1, int(app.config.get("LOG_AGE", 90)))
     retention_job = every(12).hours
 
-    @task(retention_job, name="sync_log_retention", threaded=True)
+    @task(retention_job, name="sync_log_retention", threaded=True, first_run=True)
     def _sync_log_retention() -> None:
         with app.app_context():
             removed = prune_sync_logs(log_age)
@@ -39,7 +39,7 @@ def init_task_scheduler(app: "Flask") -> None:
         interval = max(5, int(app.config.get("TLINK_SYNC_INTERVAL_SECONDS", 60)))
         schedule_job = every(interval).seconds
 
-        @task(schedule_job, name="tlink_device_sync", threaded=True)
+        @task(schedule_job, name="tlink_device_sync", threaded=True, first_run=True)
         def _tlink_device_sync() -> None:
             with app.app_context():
                 app.logger.info("TLINK device sync task started")

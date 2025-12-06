@@ -4,9 +4,10 @@ A Flask-based reference implementation that ingests TLINK push payloads, stores 
 
 ## Features
 
-- **Webhook ingestion** (`POST /api/webhooks/tlink`): stores every `sensorsDates` entry, maintains user → device bindings, and keeps the latest values per sensor.
+- **Webhook ingestion** (`POST /api/webhooks/tlink`): stores every `sensorsDates` entry (including the vendor-supplied `sensorName`), maintains user → device bindings, and keeps the latest values per sensor.
 - **Device history service** (`GET /api/devices`): paginated device list with optional `ownerId` filtering plus per-sensor history windows (`deviceId`, `startTime`, `endTime`, `historyLimit`).
 - **Latest snapshot API** (`GET /api/devices/<deviceId>/latest`): mirrors the "single device" view from the official API reference using your locally persisted data.
+- **ATG export bridge**: after each TLINK sync cycle, recalculates tank volumes from probe readings (supports the supplied elliptical-tank math) and POSTs the result (now tagged with `sensorId` + `sensorName`) to `https://supsopha.com/api/upload_atg_record.php`.
 - **Device reference helper** (`GET /api/reference/device-apis`): quick reminders for the most common device APIs described in `docs/official_api_reference.md` so frontend teams know how this local service relates to the vendor endpoints.
 - **Remote sync background task**: polls TLINK's `/api/device/getDeviceSensorDatas` on a 60-second cadence (configurable), using the OAuth client to stay authenticated and writing the response through the same ingestion pipeline as the webhook.
 - **Per-device sync logs + retention**: every device sync produces a structured log line (one file per device per day) that lists all sensors captured, and a 12-hour maintenance task prunes log files older than `LOG_AGE` days (default 90).
@@ -112,6 +113,14 @@ requirements.txt       # Python dependencies
 - Tokens are cached and refreshed automatically—no need to paste short-lived bearer strings into `.env`.
 - Watch the Flask logs for `TLINK sync completed...` messages to confirm the job is running, or set `TLINK_SYNC_ENABLED=false` to disable the background pull entirely.
 
+## ATG Export Bridge
+
+- After every successful TLINK sync cycle the service collects the latest probe readings for the configured level sensors, converts millimeters to liters with the supplied elliptical-tank math, forces the water fields to zero, and POSTs `{ "time": <epoch_ms>, "atgInfo": [...] }` to `ATG_EXPORT_ENDPOINT` (default `https://supsopha.com/api/upload_atg_record.php`). Each `atgInfo` entry now includes both `sensorId` and the persisted `sensorName` for downstream labeling.
+- Tank geometry defaults: `ATG_EXPORT_WIDTH_CM=155`, `ATG_EXPORT_HEIGHT_CM=155`, `ATG_EXPORT_WALL_THICKNESS_CM=0.6`. Sensors listed in `ATG_EXPORT_LONG_SENSOR_IDS` (default `6026176`) use `ATG_EXPORT_LONG_LENGTH_CM=492`, while all remaining sensors use `ATG_EXPORT_SHORT_LENGTH_CM=246`.
+- Oil metadata and densities come from `ATG_EXPORT_SENSOR_OIL_TYPES`, `ATG_EXPORT_DEFAULT_OIL_TYPE`, `ATG_EXPORT_DEFAULT_DENSITY`, and `ATG_EXPORT_OIL_DENSITIES` (e.g., `6026176:Diesel` plus `Diesel:0.84,Gasoline:0.75`). These values drive the `oilType`, `oilRatio`, and `weight` fields in the outbound payload.
+- Use `ATG_EXPORT_SENSOR_IDS` to limit which sensors are exported (leave blank to include every sensor with a numeric reading). Device connectivity is inferred from `last_push_time` and the `ATG_EXPORT_CONNECT_TTL_SECONDS` sliding window (default 15 minutes).
+- Additional controls include `ATG_EXPORT_ENABLED`, `ATG_EXPORT_TIMEOUT`, and `ATG_EXPORT_DEFAULT_TEMPERATURE` (a fallback since TLINK does not supply a temperature sensor reading here).
+
 
 ## API Contracts
 
@@ -170,7 +179,7 @@ requirements.txt       # Python dependencies
 
 - `user`: present only when `ownerId` is supplied; contains normalized user info (`userId`, `username`, `displayName`, etc.).
 - `pagination`: `page`, `pageSize`, `total`, `pages`.
-- `devices[]`: each entry includes `_device_summary` (deviceId, userId, lastFlag/lastPushTime) plus `sensors[]`. Every sensor ships `_sensor_summary` fields and a `history` array of up to `historyLimit` readings.
+- `devices[]`: each entry includes `_device_summary` (deviceId, userId, lastFlag/lastPushTime) plus `sensors[]`. Every sensor ships `_sensor_summary` fields (now including `sensorName`) and a `history` array of up to `historyLimit` readings.
 
 **Errors:** `404` when `ownerId` is provided but the user does not exist; `400` when query parameters fail validation.
 
@@ -179,7 +188,7 @@ requirements.txt       # Python dependencies
 **Purpose:** Quickly fetches the last known value for every sensor on a single device.
 
 - Optional `ownerId` query parameter enforces that the device belongs to a specific local user before returning data.
-- Returns `{ "device": { ... }, "sensors": [{ ... , "latest": { ... } }] }` where `latest` mirrors `_reading_dict` (`recordedAt`, `sensorTimestamp`, `isAlarm`, `isLine`, `rawValue`, `value`).
+- Returns `{ "device": { ... }, "sensors": [{ ... , "latest": { ... } }] }` where each sensor carries `sensorName` and `latest` mirrors `_reading_dict` (`recordedAt`, `sensorTimestamp`, `isAlarm`, `isLine`, `rawValue`, `value`).
 - `404` is returned if the device (or the owner/device combination) does not exist.
 
 ### File-backed history — `GET /api/devices/<deviceId>/history`
@@ -248,7 +257,7 @@ requirements.txt       # Python dependencies
 | --- | --- |
 | `users` | Represents TLINK `deviceUserid` / `userId` owners. Internal primary key is a UUID (`CHAR(36)`) generated automatically. |
 | `devices` | `deviceId` entities bound to a `user_id` (UUID FK). Stores the last push metadata plus descriptive fields such as `device_name`, `device_no`, `group_id`, lat/lng, `product_id`, `product_type`, and `protocol_label`. |
-| `sensors` | Unique per `(device, sensorsId)` pairing. Tracks last-known status along with the vendor-reported `unit`. |
+| `sensors` | Unique per `(device, sensorsId)` pairing. Tracks last-known status along with the vendor-reported `unit` and now persists `sensor_name` for labeling. |
 | `sensor_readings` | Historical values captured for every push, deduplicated via `(sensor_id, recorded_at, sensor_timestamp)`. |
 
 Use `sql/schema.sql` if you prefer applying DDL manually or when reseeding a fresh database. The runtime automatically executes this script at startup when `AUTO_APPLY_SCHEMA=true`, and the Docker MySQL container imports it on first initialization.
