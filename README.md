@@ -131,6 +131,12 @@ requirements.txt       # Python dependencies
 - Timestamp filters accept `YYYY-MM-DD HH:MM:SS` strings and are normalized before querying MySQL/log files.
 - When provided, `X-TLink-Signature` must be `sha256=...` HMAC over the raw request body using `PUSH_WEBHOOK_SECRET`.
 
+### Api Health — `GET /api/health` or `GET /api/status`
+
+**Purpose:** Simple health check endpoint to verify the service is running.
+
+**Response:** `200 {"status":"ok","timestamp":"<ISO 8601>"}`
+
 ### Webhook ingestion — `POST /api/webhooks/tlink`
 
 **Purpose:** Entry point for TLINK push notifications documented in `docs/push_data_protocol.md`.

@@ -11,6 +11,7 @@ from flask import current_app
 
 from .db import get_connection
 from .utils import coerce_datetime
+from .gas_cal import tank_volume_cylindrical_diameter
 
 
 @dataclass
@@ -22,13 +23,11 @@ class TankProfile:
 
     def max_volume_liters(self) -> float:
         internal_height_cm = max(0.0, self.height_cm - 2.0 * self.thickness_cm)
-        probe_full_mm = internal_height_cm * 10.0
-        return tank_volume_elliptical(
-            self.width_cm,
-            self.height_cm,
-            self.length_cm,
-            self.thickness_cm,
-            probe_full_mm,
+        return tank_volume_cylindrical_diameter(
+            diameter=self.width_cm,
+            length=self.length_cm,
+            fill_height=internal_height_cm,
+            unit="cm",
         )
 
 
@@ -126,12 +125,11 @@ def _row_to_atg_entry(row: Dict[str, object], position: int) -> Optional[Dict[st
         return None
 
     try:
-        volume_liters = tank_volume_elliptical(
-            profile.width_cm,
-            profile.height_cm,
-            profile.length_cm,
-            profile.thickness_cm,
-            probe_mm,
+        volume_liters = tank_volume_cylindrical_diameter(
+            diameter=profile.width_cm,
+            length=profile.length_cm,
+            fill_height=probe_mm / 10.0,
+            unit="cm",
         )
         max_volume = profile.max_volume_liters()
     except ValueError as exc:
@@ -214,36 +212,3 @@ def _state_from_ratio(ratio: float) -> str:
     if ratio >= 0.95:
         return "High level warning"
     return "Normal"
-
-
-def tank_volume_elliptical(
-    w: float,
-    h: float,
-    l: float,
-    t: float,
-    probe: float,
-) -> float:
-    h_fuel = probe / 10.0
-    a = (w - 2 * t) / 2.0
-    b = (h - 2 * t) / 2.0
-    length_internal = l - 2 * t
-
-    if a <= 0 or b <= 0 or length_internal <= 0:
-        raise ValueError("Invalid tank dimensions (internal size <= 0).")
-
-    h_fuel = max(0.0, min(h_fuel, 2 * b))
-
-    if h_fuel == 0:
-        return 0.0
-    if abs(h_fuel - 2 * b) < 1e-12:
-        return math.pi * a * b * length_internal / 1000.0
-
-    R = b
-    z = R - h_fuel
-    cos_arg = max(-1.0, min(1.0, z / R))
-    sqrt_term = math.sqrt(max(0.0, 2.0 * R * h_fuel - h_fuel * h_fuel))
-    circle_segment_area = R * R * math.acos(cos_arg) - z * sqrt_term
-    ellipse_segment_area = (a / R) * circle_segment_area
-
-    volume_liters = (ellipse_segment_area * length_internal) / 1000.0
-    return max(0.0, volume_liters)

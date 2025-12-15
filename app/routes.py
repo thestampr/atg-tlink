@@ -55,6 +55,12 @@ def ingest_push() -> Response:
     return jsonify({"status": "ok", "storedReadings": stored})
 
 
+@api_bp.route("/health", methods=["GET"])
+@api_bp.route("/status", methods=["GET"])
+def api_status() -> Response:
+    return jsonify({"status": "ok", "timestamp": datetime.now().isoformat()})
+
+
 @api_bp.route("/devices", methods=["GET"])
 def list_devices() -> Response:
     conn = get_connection()
